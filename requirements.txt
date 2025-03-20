@@ -1,0 +1,10 @@
+numpy
+pandas
+tqdm
+typing-extensions 
+google-generativeai
+Pillow  
+ratelimit
+PyMuPDF 
+python-dotenv 
+streamlit
