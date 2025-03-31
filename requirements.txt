@@ -8,3 +8,4 @@ ratelimit
 PyMuPDF 
 python-dotenv 
 streamlit
+SpeechRecognition
