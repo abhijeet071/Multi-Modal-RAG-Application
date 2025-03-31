@@ -9,3 +9,4 @@ PyMuPDF
 python-dotenv 
 streamlit
 SpeechRecognition
+pyttsx3
