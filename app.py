@@ -14,7 +14,6 @@ import io
 from dotenv import load_dotenv
 import streamlit as st
 import speech_recognition as sr
-import pyttsx3
 
 @dataclass
 class Config:
@@ -94,49 +93,101 @@ class RAGApplication:
         self.data_df = pd.DataFrame({
             'Page': list(range(1, len(page_analyses) + 1)),
             'Content': page_analyses,
+            'Image': images,  # Store the images
             'Embeddings': [self.gemini_client.create_embeddings(text) for text in tqdm(page_analyses)]
-        })
+    })
+        
+    def is_image_question(self, question: str) -> bool:
+        """Check if the question is about an image"""
+        image_keywords = ["image", "chart", "diagram", "picture", "graph", "figure"]
+        return any(keyword in question.lower() for keyword in image_keywords)
+    
+
+    def extract_page_number(self, question: str) -> int:
+        """Extract the page number from the question"""
+        import re
+        match = re.search(r"page (\d+)", question.lower())
+        return int(match.group(1)) if match else None
+
+
     
     def answer_question(self, question: str) -> str:
         """Answer a question using the processed data"""
         if self.data_df is None or self.data_df.empty:
             raise ValueError("Process a PDF first to extract content.")
-    
-        extracted_text = "\n".join(self.data_df["Content"])
-    
-        prompt = textwrap.dedent(f""" Below is some extracted text from a document. Use it to answer the given question:
-                                 DOCUMENT TEXT:
-                                 {extracted_text}
-                                 QUESTION: {question}
-                                 Provide a concise and accurate response based on the document text.
-                                 """)
-
-        try:
-            response = self.gemini_client.model.generate_content(prompt)
-            return response.text if response.text else "No relevant answer found."
-        except Exception as e:
-            print(f"Error answering question: {e}")
-            return "Error generating answer."
+        
+        if self.is_image_question(question):
+            # Handle image-related questions
+            page_number = self.extract_page_number(question)  
+            if page_number is not None and 1 <= page_number <= len(self.data_df):
+                image = self.data_df.iloc[page_number - 1]["Image"]
+                prompt = f"""Analyze the image and answer the following question:
+                        QUESTION: {question}
+                        Provide a detailed description of the image and answer the question."""
+                try:
+                    response = self.gemini_client.model.generate_content([prompt, image])
+                    return response.text if response.text else "No relevant answer found."
+                except Exception as e:
+                    print(f"Error answering image question: {e}")
+                    return "Error generating answer."
+            else:
+                return "Invalid page number or no image found."
+        else:
+            # Handle text-based questions
+            extracted_text = "\n".join(self.data_df["Content"])
+            prompt = textwrap.dedent(f""" Below is some extracted text from a document. Use it to answer the given question:
+                                        DOCUMENT TEXT:
+                                        {extracted_text}
+                                        QUESTION: {question}
+                                        Provide a concise and accurate response based on the document text.
+                                        """)
+            try:
+                response = self.gemini_client.model.generate_content(prompt)
+                return response.text if response.text else "No relevant answer found."
+            except Exception as e:
+                print(f"Error answering question: {e}")
+                return "Error generating answer."
 
 recognizer = sr.Recognizer()
-engine = pyttsx3.init()
+
+
+import pyttsx3
+import threading
+
+engine = None
 speech_thread = None
 
-import threading
 def speak(text):
-
     """Stop previous speech thread and run text-to-speech safely"""
-    global speech_thread
-
+    global speech_thread, engine
+    
+    # Stop any existing speech
     if speech_thread and speech_thread.is_alive():
-        return  
-
+        if engine:
+            try:
+                engine.stop()
+            except:
+                pass
+    
+    # Create a new engine instance for each speech request
     def run_tts():
-        engine.say(text)
-        engine.runAndWait()
-
+        global engine
+        try:
+            engine = pyttsx3.init()
+            engine.say(text)
+            engine.runAndWait()
+            engine = None  
+        except Exception as e:
+            print(f"Error in text-to-speech: {e}")
+    
     speech_thread = threading.Thread(target=run_tts, daemon=True)
     speech_thread.start()
+
+
+
+
+
+
 
 
 def get_voice_input():
